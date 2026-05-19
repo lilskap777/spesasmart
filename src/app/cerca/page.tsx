@@ -13,7 +13,7 @@ const CATEGORIE = [
   'igiene_persona', 'pulizia_casa', 'altro'
 ]
 
-function Cerca() {() {
+function Cerca() {
   const searchParams = useSearchParams()
   const [risultati, setRisultati] = useState<any[]>([])
   const [catene, setCatene] = useState<any[]>([])
