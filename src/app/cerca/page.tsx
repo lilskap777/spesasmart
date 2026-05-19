@@ -1,5 +1,6 @@
 'use client'
 
+import { Suspense } from 'react'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
@@ -12,7 +13,7 @@ const CATEGORIE = [
   'igiene_persona', 'pulizia_casa', 'altro'
 ]
 
-export default function Cerca() {
+function Cerca() {() {
   const searchParams = useSearchParams()
   const [risultati, setRisultati] = useState<any[]>([])
   const [catene, setCatene] = useState<any[]>([])
@@ -250,5 +251,12 @@ export default function Cerca() {
         )}
       </div>
     </div>
+  )
+}
+export default function CercaPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: '40px', textAlign: 'center' }}>⏳ Caricamento...</div>}>
+      <Cerca />
+    </Suspense>
   )
 }
