@@ -153,9 +153,14 @@ export default function AdminPuntiVendita() {
           <span style={{ color: '#4a5568' }}>/</span>
           <span style={{ color: '#e2e8f0', fontSize: '0.85rem', fontWeight: '600' }}>🏪 Punti vendita</span>
         </div>
-        <button style={s.btnGreen} onClick={() => setMostraForm(!mostraForm)}>
-          {mostraForm ? '✕ Annulla' : '+ Aggiungi punto vendita'}
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+  <Link href="/admin/importa-negozi" style={{ ...s.btnGray, textDecoration: 'none', fontSize: '0.82rem' }}>
+    🗺️ Importa da OpenStreetMap
+  </Link>
+  <button style={s.btnGreen} onClick={() => setMostraForm(!mostraForm)}>
+    {mostraForm ? '✕ Annulla' : '+ Aggiungi punto vendita'}
+  </button>
+</div>
       </div>
 
       <div style={s.content}>
