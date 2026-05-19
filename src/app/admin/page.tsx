@@ -74,6 +74,7 @@ const statCards = [
     { href: '/admin/volantini', icon: '📄', label: 'Gestisci Volantini', desc: 'Carica volantini e prezzi' },
     { href: '/admin/parser', icon: '✦', label: 'AI Parser Volantini', desc: 'Carica volantino e estrai prodotti con AI' },
     { href: '/', icon: '🌐', label: 'Vai al sito', desc: 'Visualizza la homepage pubblica' },
+    { href: '/admin/punti-vendita', icon: '🏪', label: 'Punti vendita', desc: 'Aggiungi supermercati con mappa' },
   ]
 
   return (
