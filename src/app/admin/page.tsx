@@ -10,6 +10,9 @@ export default function AdminDashboard() {
   })
   const [loading, setLoading] = useState(true)
   const [attivita, setAttivita] = useState<any[]>([])
+  const [autenticato, setAutenticato] = useState(false)
+  const [passwordInput, setPasswordInput] = useState('')
+  const PASSWORD = 'spesasmart2026'
 
   useEffect(() => {
     caricaStats()
@@ -38,8 +41,28 @@ export default function AdminDashboard() {
     }
     setLoading(false)
   }
+if (!autenticato) return (
+  <div style={{ fontFamily: 'system-ui', background: '#0f1117', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ background: '#161b27', border: '1px solid #2a3045', borderRadius: '12px', padding: '32px', width: '320px' }}>
+      <div style={{ color: '#22c55e', fontWeight: '700', fontSize: '1.1rem', marginBottom: '20px' }}>🔐 Admin SpesaSmart</div>
+      <input
+        type="password"
+        placeholder="Password admin"
+        value={passwordInput}
+        onChange={e => setPasswordInput(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && (passwordInput === PASSWORD ? setAutenticato(true) : alert('Password errata'))}
+        style={{ width: '100%', padding: '10px 12px', background: '#1e2535', border: '1px solid #2a3045', borderRadius: '8px', color: '#e2e8f0', fontSize: '0.9rem', outline: 'none', marginBottom: '12px', boxSizing: 'border-box' as const }}
+      />
+      <button
+        onClick={() => passwordInput === PASSWORD ? setAutenticato(true) : alert('Password errata')}
+        style={{ width: '100%', padding: '10px', background: '#22c55e', color: '#0a1a0f', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>
+        Accedi
+      </button>
+    </div>
+  </div>
+)
 
-  const statCards = [
+const statCards = [
     { label: 'Catene', value: stats.catene, icon: '🏬', color: '#1a7a4a', bg: '#e8f5ee' },
     { label: 'Prodotti', value: stats.prodotti, icon: '📦', color: '#3b82f6', bg: '#eff6ff' },
     { label: 'Volantini', value: stats.volantini, icon: '📄', color: '#f59e0b', bg: '#fffbeb' },

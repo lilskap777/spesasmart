@@ -80,13 +80,6 @@ useEffect(() => {
 
         {/* DESTRA: Admin + Accedi + Hamburger */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Link href="/admin" style={{
-            fontSize: '0.78rem', color: '#9a9a90',
-            textDecoration: 'none', padding: '6px 10px',
-            borderRadius: '6px', border: '1px solid #e8e6de'
-          }}>
-            ⚙️ Admin
-          </Link>
           {utente ? (
   <Link href="/account" style={{ background: '#1a7a4a', color: 'white', padding: '8px 16px', borderRadius: '8px', textDecoration: 'none', fontWeight: '600', fontSize: '0.85rem' }}>
     👤 {utente.user_metadata?.nome || 'Account'}
@@ -141,14 +134,6 @@ useEffect(() => {
               {link.label}
             </Link>
           ))}
-          <div style={{ borderTop: '1px solid #e8e6de', marginTop: '8px', paddingTop: '8px' }}>
-            <Link href="/admin" onClick={() => setMenuAperto(false)} style={{
-              display: 'block', padding: '12px 16px', borderRadius: '10px',
-              textDecoration: 'none', fontSize: '0.9rem', color: '#9a9a90'
-            }}>
-              ⚙️ Admin panel
-            </Link>
-          </div>
         </div>
       )}
 
