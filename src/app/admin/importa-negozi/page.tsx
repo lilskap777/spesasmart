@@ -98,14 +98,15 @@ export default function ImportaNegozi() {
         out center;
       `
 
-      const res = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: query
-      })
+      const res = await fetch('/api/osm', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ query })
+})
 
-      if (!res.ok) throw new Error('Errore Overpass API')
+if (!res.ok) throw new Error('Errore Overpass API')
 
-      const data = await res.json()
+const data = await res.json()
       const elementi = data.elements || []
 
       // Trasforma i risultati
