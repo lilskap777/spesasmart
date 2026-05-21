@@ -9,7 +9,7 @@ const CATENE_OSM: Record<string, { nomi: string[], colore: string }> = {
   'Conad': { nomi: ['Conad', 'Conad City', 'Conad Superstore'], colore: '#1a7a4a' },
   'Carrefour': { nomi: ['Carrefour', 'Carrefour Market', 'Carrefour Express'], colore: '#0066cc' },
   'Lidl': { nomi: ['Lidl'], colore: '#f7c200' },
-  'Pam': { nomi: ['Pam', 'Panorama', 'Pam Panorama'], colore: '#e63329' },
+  'Pam / Pro7': { nomi: ['Pam', 'Pro7', 'Pam local', 'Pam Local'], colore: '#e63329' },
   'Eurospin': { nomi: ['Eurospin'], colore: '#ff6b00' },
   'Coop': { nomi: ['Coop', 'Ipercoop', 'Unicoop'], colore: '#e30613' },
   'Aldi': { nomi: ['Aldi'], colore: '#00529b' },
@@ -85,18 +85,14 @@ export default function ImportaNegozi() {
       const bbox = BBOX[regione] || BBOX.italia
 
       // Query Overpass API
-      const nomiQuery = nomi.map(n =>
-        `node["shop"="supermarket"]["name"~"${n}",i](${bbox});
-         way["shop"="supermarket"]["name"~"${n}",i](${bbox});`
-      ).join('\n')
-
-      const query = `
-        [out:json][timeout:60];
-        (
-          ${nomiQuery}
-        );
-        out center;
-      `
+const query = `
+  [out:json][timeout:90];
+  (
+    node["shop"="supermarket"]["name"~"${nomi.join('|')}",i](${bbox});
+way["shop"="supermarket"]["name"~"${nomi.join('|')}",i](${bbox});
+  );
+  out center 500;
+`
 
       const res = await fetch('/api/osm', {
   method: 'POST',

@@ -6,9 +6,12 @@ export async function POST(request: NextRequest) {
 
     const res = await fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: { 
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'SpesaSmart/1.0 (contact@spesasmart.it)'
+      },
       body: `data=${encodeURIComponent(query)}`,
-      signal: AbortSignal.timeout(60000)
+      signal: AbortSignal.timeout(120000)
     })
 
     if (!res.ok) {
