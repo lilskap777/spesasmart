@@ -39,17 +39,28 @@ export default function ImportaNegozi() {
   const [regione, setRegione] = useState('italia')
 
   const REGIONI: Record<string, string> = {
-    italia: 'Italia',
-    lombardia: 'Lombardia',
-    lazio: 'Lazio',
-    campania: 'Campania',
-    sicilia: 'Sicilia',
-    veneto: 'Veneto',
-    piemonte: 'Piemonte',
-    emilia_romagna: 'Emilia-Romagna',
-    toscana: 'Toscana',
-    puglia: 'Puglia',
-  }
+  italia: 'Italia',
+  lombardia: 'Lombardia',
+  lazio: 'Lazio',
+  campania: 'Campania',
+  sicilia: 'Sicilia',
+  veneto: 'Veneto',
+  piemonte: 'Piemonte',
+  emilia_romagna: 'Emilia-Romagna',
+  toscana: 'Toscana',
+  puglia: 'Puglia',
+  calabria: 'Calabria',
+  sardegna: 'Sardegna',
+  liguria: 'Liguria',
+  marche: 'Marche',
+  abruzzo: 'Abruzzo',
+  friuli: 'Friuli-Venezia Giulia',
+  trentino: 'Trentino-Alto Adige',
+  umbria: 'Umbria',
+  basilicata: 'Basilicata',
+  molise: 'Molise',
+  valle_aosta: 'Valle d\'Aosta',
+}
 
   // Bounding box per regione italiana
   const BBOX: Record<string, string> = {
@@ -63,6 +74,17 @@ export default function ImportaNegozi() {
     emilia_romagna: '43.7,9.1,45.1,12.8',
     toscana: '42.2,9.7,44.5,12.4',
     puglia: '39.7,14.9,41.9,18.5',
+    calabria: '37.9,15.6,40.1,17.2',
+sardegna: '38.8,8.1,41.3,9.8',
+liguria: '43.7,7.4,44.7,10.1',
+marche: '42.7,12.3,43.9,13.9',
+abruzzo: '41.7,13.2,42.9,14.8',
+friuli: '45.5,12.4,46.7,14.0',
+trentino: '45.6,10.4,47.1,12.4',
+umbria: '42.4,11.9,43.6,13.2',
+basilicata: '39.9,15.4,41.1,16.9',
+molise: '41.3,14.0,41.9,15.2',
+valle_aosta: '45.5,6.8,45.9,7.9',
   }
 
   async function cercaNegozi() {
