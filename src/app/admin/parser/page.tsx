@@ -232,6 +232,23 @@ export default function AdminParser() {
             ai_confidence: p.confidence
           })
         if (prezzoErr) throw prezzoErr
+        // 3. Cerca immagine su Open Food Facts
+try {
+  const imgRes = await fetch('/api/food-image', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nome: p.nome, marca: p.marca })
+  })
+  const imgData = await imgRes.json()
+  if (imgData.found && imgData.immagine_url) {
+    await supabase.from('prodotti').update({
+      immagine_url: imgData.immagine_url,
+      barcode: imgData.barcode || null
+    }).eq('id', prodottoId)
+  }
+} catch (e) {
+  console.log('Immagine non trovata per:', p.nome)
+}
 
         salvati++
         setProdottiSalvati(salvati)

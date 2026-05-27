@@ -199,9 +199,24 @@ function Cerca() {
                     }}
                   >
                     {/* Immagine */}
-                    <div style={{ background: '#e8f5ee', height: '130px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '3rem', position: 'relative' }}>
-                      {p.emoji || '🛒'}
-                      {p.percentuale_sconto > 0 && (
+<div style={{ background: '#e8f5ee', height: '130px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '3rem', position: 'relative', overflow: 'hidden' }}>
+  {p.immagine_url ? (
+    <img
+      src={p.immagine_url}
+      alt={p.prodotto_nome}
+      style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '8px' }}
+      onError={e => {
+        e.currentTarget.style.display = 'none'
+        if (e.currentTarget.nextElementSibling) {
+          (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex'
+        }
+      }}
+    />
+  ) : null}
+  <span style={{ display: p.immagine_url ? 'none' : 'flex' }}>
+    {p.emoji || '🛒'}
+  </span>
+  {p.percentuale_sconto > 0 && (
                         <div style={{ position: 'absolute', top: '10px', left: '10px', background: '#f05a28', color: 'white', fontSize: '0.7rem', fontWeight: '700', padding: '3px 8px', borderRadius: '6px' }}>
                           -{p.percentuale_sconto}%
                         </div>

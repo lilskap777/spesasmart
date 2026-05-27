@@ -74,9 +74,19 @@ export default function SchedaProdotto() {
 
         {/* HERO PRODOTTO */}
         <div style={{ background: 'white', border: '1.5px solid #e8e6de', borderRadius: '16px', padding: '28px', display: 'grid', gridTemplateColumns: '160px 1fr', gap: '28px', marginBottom: '24px' }}>
-          <div style={{ background: '#e8f5ee', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '4rem', aspectRatio: '1' }}>
-            {prodotto.emoji || '🛒'}
-          </div>
+          <div style={{ background: '#e8f5ee', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '4rem', aspectRatio: '1', overflow: 'hidden' }}>
+  {prodotto.immagine_url ? (
+    <img 
+      src={prodotto.immagine_url} 
+      alt={prodotto.nome}
+      style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '8px' }}
+      onError={e => { 
+  (e.target as HTMLImageElement).style.display = 'none'
+}}
+    />
+  ) : null}
+  <span style={{ display: prodotto.immagine_url ? 'none' : 'flex' }}>{prodotto.emoji || '🛒'}</span>
+</div>
           <div>
             <div style={{ fontSize: '0.75rem', fontWeight: '600', color: '#9a9a90', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>
               {prodotto.categoria}

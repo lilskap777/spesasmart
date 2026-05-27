@@ -184,11 +184,26 @@ export default function Home() {
                 >
                   {/* Immagine */}
                   <div style={{
-                    background: '#e8f5ee', height: '120px',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '2.8rem', position: 'relative'
-                  }}>
-                    {prodotto.emoji || '🛒'}
+  background: '#e8f5ee', height: '120px',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  fontSize: '2.8rem', position: 'relative', overflow: 'hidden'
+}}>
+  {prodotto.immagine_url ? (
+    <img
+      src={prodotto.immagine_url}
+      alt={prodotto.prodotto_nome}
+      style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '8px' }}
+      onError={e => {
+        e.currentTarget.style.display = 'none'
+        if (e.currentTarget.nextElementSibling) {
+          (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex'
+        }
+      }}
+    />
+  ) : null}
+  <span style={{ display: prodotto.immagine_url ? 'none' : 'flex' }}>
+    {prodotto.emoji || '🛒'}
+  </span>
                     {prodotto.percentuale_sconto > 0 && (
                       <div style={{
                         position: 'absolute', top: '10px', left: '10px',
