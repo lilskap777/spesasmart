@@ -343,7 +343,7 @@ try {
               onDrop={handleFileDrop}
               onClick={() => fileInputRef.current?.click()}
             >
-              <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+              <input ref={fileInputRef} type="file" accept="image/*,application/pdf" style={{ display: 'none' }}
                 onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])} />
 
               {preview ? (
@@ -368,7 +368,7 @@ try {
                     Trascina qui l'immagine del volantino
                   </div>
                   <div style={{ color: '#4a5568', fontSize: '0.82rem' }}>
-                    Supportati: JPG, PNG, WebP · Max 5MB
+                    Supportati: JPG, PNG, WebP, PDF · Max 20MB
                   </div>
                   <div style={{ marginTop: '16px', color: '#22c55e', fontSize: '0.82rem', fontWeight: '600' }}>
                     oppure clicca per selezionare
