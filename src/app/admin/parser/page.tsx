@@ -26,7 +26,7 @@ type Prodotto = {
 }
 
 export default function AdminParser() {
-  const [step, setStep] = useState<'upload' | 'processing' | 'review' | 'saving' | 'done'>('upload')
+  const [step, setStep] = useState<'upload' | 'converting' | 'processing' | 'review' | 'saving' | 'done'>('upload')
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string>('')
   const [catena, setCatena] = useState('')
@@ -38,14 +38,17 @@ export default function AdminParser() {
   const [prodotti, setProdotti] = useState<Prodotto[]>([])
   const [errore, setErrore] = useState('')
   const [progress, setProgress] = useState(0)
+  const [progressMsg, setProgressMsg] = useState('')
   const [tokensUsati, setTokensUsati] = useState(0)
   const [costoStimato, setCostoStimato] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [prodottiSalvati, setProdottiSalvati] = useState(0)
+  const [isPDF, setIsPDF] = useState(false)
+  const [pagineConvertite, setPagineConvertite] = useState(0)
+  const [pagineTotali, setPagineTotali] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Carica catene al mount
   useState(() => {
     supabase.from('catene').select('*').eq('attiva', true).order('nome')
       .then(({ data }) => setCateneDB(data || []))
@@ -61,8 +64,46 @@ export default function AdminParser() {
   function handleFileSelect(f: File) {
     setFile(f)
     setErrore('')
-    const url = URL.createObjectURL(f)
-    setPreview(url)
+    setIsPDF(f.type === 'application/pdf')
+    if (f.type !== 'application/pdf') {
+      const url = URL.createObjectURL(f)
+      setPreview(url)
+    } else {
+      setPreview('')
+    }
+  }
+
+  // Converte PDF in array di immagini base64 usando pdfjs nel browser
+  async function convertPDFtoImages(pdfFile: File): Promise<string[]> {
+    const pdfjsLib = await import('pdfjs-dist')
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
+
+    const arrayBuffer = await pdfFile.arrayBuffer()
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+    const numPages = pdf.numPages
+    setPagineTotali(numPages)
+
+    const immagini: string[] = []
+
+    for (let i = 1; i <= numPages; i++) {
+      setPagineConvertite(i)
+      setProgressMsg(`Conversione pagina ${i} di ${numPages}...`)
+
+      const page = await pdf.getPage(i)
+      const viewport = page.getViewport({ scale: 2 })
+
+      const canvas = document.createElement('canvas')
+      canvas.width = viewport.width
+      canvas.height = viewport.height
+
+      const context = canvas.getContext('2d')!
+      await page.render({ canvasContext: context, viewport, canvas }).promise
+
+      const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1]
+      immagini.push(base64)
+    }
+
+    return immagini
   }
 
   async function avviaAnalisi() {
@@ -70,37 +111,84 @@ export default function AdminParser() {
     if (!catenaId) { setErrore('Seleziona la catena del supermercato'); return }
     if (!dataInizio || !dataFine) { setErrore('Inserisci le date di validità'); return }
 
-    setStep('processing')
-    setProgress(0)
     setErrore('')
-
-    // Simula progress mentre aspettiamo Claude
-    const interval = setInterval(() => {
-      setProgress(p => p < 85 ? p + Math.random() * 8 : p)
-    }, 800)
+    let tuttiIProdotti: any[] = []
+    let tokensTotal = 0
+    let costoTotal = 0
 
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('catena', catena)
-      formData.append('data_inizio', dataInizio)
-      formData.append('data_fine', dataFine)
+      if (isPDF) {
+        // STEP 1: Converti PDF in immagini nel browser
+        setStep('converting')
+        setProgress(0)
+        const immagini = await convertPDFtoImages(file)
 
-      const res = await fetch('/api/parser', { method: 'POST', body: formData })
-      const data = await res.json()
+        // STEP 2: Analizza ogni pagina con Claude
+        setStep('processing')
+        for (let i = 0; i < immagini.length; i++) {
+          setProgressMsg(`Analisi pagina ${i + 1} di ${immagini.length} con Claude AI...`)
+          setProgress(Math.round(((i + 1) / immagini.length) * 100))
 
-      clearInterval(interval)
-      setProgress(100)
+          // Crea un Blob dall'immagine base64
+          const byteChars = atob(immagini[i])
+          const byteArr = new Uint8Array(byteChars.length)
+          for (let j = 0; j < byteChars.length; j++) byteArr[j] = byteChars.charCodeAt(j)
+          const blob = new Blob([byteArr], { type: 'image/jpeg' })
+          const pageFile = new File([blob], `page_${i + 1}.jpg`, { type: 'image/jpeg' })
 
-      if (!res.ok || data.error) {
-        throw new Error(data.error || 'Errore sconosciuto')
+          const formData = new FormData()
+          formData.append('file', pageFile)
+          formData.append('catena', catena)
+          formData.append('data_inizio', dataInizio)
+          formData.append('data_fine', dataFine)
+
+          const res = await fetch('/api/parser', { method: 'POST', body: formData })
+          const data = await res.json()
+
+          if (res.ok && data.prodotti) {
+            tuttiIProdotti = [...tuttiIProdotti, ...data.prodotti]
+            tokensTotal += data.tokens_usati || 0
+            costoTotal += parseFloat(data.costo_stimato || '0')
+          }
+        }
+
+        // Rimuovi duplicati
+        tuttiIProdotti = tuttiIProdotti.filter((p, i, arr) =>
+          arr.findIndex(q => q.nome?.toLowerCase() === p.nome?.toLowerCase()) === i
+        )
+
+      } else {
+        // Immagine normale
+        setStep('processing')
+        setProgress(0)
+        setProgressMsg('Analisi con Claude AI...')
+
+        const interval = setInterval(() => {
+          setProgress(p => p < 85 ? p + Math.random() * 8 : p)
+        }, 800)
+
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('catena', catena)
+        formData.append('data_inizio', dataInizio)
+        formData.append('data_fine', dataFine)
+
+        const res = await fetch('/api/parser', { method: 'POST', body: formData })
+        const data = await res.json()
+        clearInterval(interval)
+        setProgress(100)
+
+        if (!res.ok || data.error) throw new Error(data.error || 'Errore sconosciuto')
+
+        tuttiIProdotti = data.prodotti || []
+        tokensTotal = data.tokens_usati || 0
+        costoTotal = parseFloat(data.costo_stimato || '0')
       }
 
-      setTokensUsati(data.tokens_usati)
-      setCostoStimato(data.costo_stimato)
+      setTokensUsati(tokensTotal)
+      setCostoStimato(costoTotal.toFixed(4))
 
-      // Prepara i prodotti per la review
-      const prodottiConId = (data.prodotti || []).map((p: any, i: number) => ({
+      const prodottiConId = tuttiIProdotti.map((p: any, i: number) => ({
         ...p,
         id: `p${i}`,
         prezzo_scontato: Number(p.prezzo_scontato) || 0,
@@ -113,16 +201,13 @@ export default function AdminParser() {
       setStep('review')
 
     } catch (e: any) {
-      clearInterval(interval)
       setErrore(e.message)
       setStep('upload')
     }
   }
 
   function aggiornaProdotto(id: string, campo: string, valore: any) {
-    setProdotti(ps => ps.map(p =>
-      p.id === id ? { ...p, [campo]: valore, modificato: true } : p
-    ))
+    setProdotti(ps => ps.map(p => p.id === id ? { ...p, [campo]: valore, modificato: true } : p))
   }
 
   function rimuoviProdotto(id: string) {
@@ -130,20 +215,9 @@ export default function AdminParser() {
   }
 
   function toggleSelezionato(id: string) {
-    setProdotti(ps => ps.map(p =>
-      p.id === id ? { ...p, selezionato: !p.selezionato } : p
-    ))
+    setProdotti(ps => ps.map(p => p.id === id ? { ...p, selezionato: !p.selezionato } : p))
   }
 
-  function selezionaTutti() {
-    setProdotti(ps => ps.map(p => ({ ...p, selezionato: true })))
-  }
-
-  function deselezionaTutti() {
-    setProdotti(ps => ps.map(p => ({ ...p, selezionato: false })))
-  }
-
-  // Drag & drop per riordinare
   function onDragStart(i: number) { setDragIndex(i) }
   function onDragOverItem(e: React.DragEvent, i: number) {
     e.preventDefault()
@@ -165,97 +239,63 @@ export default function AdminParser() {
     let salvati = 0
 
     try {
-      // Prima crea il volantino se non esiste
       let volId = volantinoId
       if (!volId) {
         const nomeVol = `${catena} — ${dataInizio} / ${dataFine}`
         const { data: volData, error: volErr } = await supabase
           .from('volantini')
-          .insert({
-            catena_id: catenaId,
-            nome: nomeVol,
-            data_inizio: dataInizio,
-            data_fine: dataFine,
-            stato: 'attivo',
-            area_geografica: 'italia'
-          })
-          .select()
-          .single()
+          .insert({ catena_id: catenaId, nome: nomeVol, data_inizio: dataInizio, data_fine: dataFine, stato: 'attivo', area_geografica: 'italia' })
+          .select().single()
         if (volErr) throw volErr
         volId = volData.id
         setVolantinoId(volId)
       }
 
       for (const p of selezionati) {
-        // 1. Cerca se il prodotto esiste già
         let prodottoId: string
-
-        const { data: esistente } = await supabase
-          .from('prodotti')
-          .select('id')
-          .ilike('nome', p.nome)
-          .limit(1)
-          .single()
+        const { data: esistente } = await supabase.from('prodotti').select('id').ilike('nome', p.nome).limit(1).single()
 
         if (esistente) {
           prodottoId = esistente.id
         } else {
-          // Crea il prodotto
           const { data: nuovoProd, error: prodErr } = await supabase
             .from('prodotti')
-            .insert({
-              nome: p.nome,
-              marca: p.marca || null,
-              grammatura: p.grammatura || null,
-              categoria: p.categoria,
-              emoji: p.emoji || '🛒',
-              attivo: true
-            })
-            .select()
-            .single()
+            .insert({ nome: p.nome, marca: p.marca || null, grammatura: p.grammatura || null, categoria: p.categoria, emoji: p.emoji || '🛒', attivo: true })
+            .select().single()
           if (prodErr) throw prodErr
           prodottoId = nuovoProd.id
         }
 
-        // 2. Inserisci il prezzo
-        const { error: prezzoErr } = await supabase
-          .from('prezzi')
-          .insert({
-            prodotto_id: prodottoId,
-            volantino_id: volId,
-            catena_id: catenaId,
-            prezzo_scontato: p.prezzo_scontato,
-            prezzo_pieno: p.prezzo_pieno,
-            data_inizio: dataInizio,
-            data_fine: dataFine,
-            verificato: true,
-            ai_confidence: p.confidence
-          })
+        const { error: prezzoErr } = await supabase.from('prezzi').insert({
+          prodotto_id: prodottoId, volantino_id: volId, catena_id: catenaId,
+          prezzo_scontato: p.prezzo_scontato, prezzo_pieno: p.prezzo_pieno,
+          data_inizio: dataInizio, data_fine: dataFine, verificato: true, ai_confidence: p.confidence
+        })
         if (prezzoErr) throw prezzoErr
-        // 3. Cerca immagine su Open Food Facts
-try {
-  const imgRes = await fetch('/api/food-image', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nome: p.nome, marca: p.marca })
-  })
-  const imgData = await imgRes.json()
-  if (imgData.found && imgData.immagine_url) {
-    await supabase.from('prodotti').update({
-      immagine_url: imgData.immagine_url,
-      barcode: imgData.barcode || null
-    }).eq('id', prodottoId)
-  }
-} catch (e) {
-  console.log('Immagine non trovata per:', p.nome)
-}
+
+        // Cerca immagine su Open Food Facts
+        try {
+          const imgRes = await fetch('/api/food-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nome: p.nome, marca: p.marca })
+          })
+          const imgData = await imgRes.json()
+          if (imgData.found && imgData.immagine_url) {
+            await supabase.from('prodotti').update({
+              immagine_url: imgData.immagine_url,
+              barcode: imgData.barcode || null
+            }).eq('id', prodottoId)
+          }
+        } catch (e) {
+          console.log('Immagine non trovata per:', p.nome)
+        }
 
         salvati++
         setProdottiSalvati(salvati)
       }
 
       setStep('done')
-
     } catch (e: any) {
       setErrore('Errore salvataggio: ' + e.message)
       setStep('review')
@@ -293,11 +333,10 @@ try {
       </div>
 
       <div style={s.content}>
-
         {/* STEP INDICATOR */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '28px' }}>
-          {['Upload', 'Analisi AI', 'Review', 'Salvataggio'].map((label, i) => {
-            const stepIndex = { upload: 0, processing: 1, review: 2, saving: 3, done: 3 }[step]
+          {['Upload', 'Conversione', 'Analisi AI', 'Review', 'Salvataggio'].map((label, i) => {
+            const stepIndex = { upload: 0, converting: 1, processing: 2, review: 3, saving: 4, done: 4 }[step]
             const isActive = i === stepIndex
             const isDone = i < stepIndex
             return (
@@ -315,18 +354,18 @@ try {
                 <span style={{ fontSize: '0.82rem', color: isActive ? '#e2e8f0' : '#4a5568', fontWeight: isActive ? '600' : '400' }}>
                   {label}
                 </span>
-                {i < 3 && <span style={{ color: '#2a3045', fontSize: '1rem' }}>→</span>}
+                {i < 4 && <span style={{ color: '#2a3045', fontSize: '1rem' }}>→</span>}
               </div>
             )
           })}
         </div>
 
-        {/* STEP: UPLOAD */}
+        {/* UPLOAD */}
         {step === 'upload' && (
           <>
             <h1 style={{ fontSize: '1.5rem', fontWeight: '700', marginBottom: '6px' }}>✦ AI Parser Volantini</h1>
             <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '24px' }}>
-              Carica un'immagine del volantino — Claude la analizzerà e estrarrà automaticamente tutti i prodotti con prezzi e sconti.
+              Carica un'immagine o un PDF del volantino — Claude estrarrà automaticamente tutti i prodotti con prezzi e sconti.
             </p>
 
             {errore && (
@@ -335,7 +374,6 @@ try {
               </div>
             )}
 
-            {/* DROP ZONE */}
             <div
               style={{ ...s.panel, border: `2px dashed ${dragOver ? '#22c55e' : '#2a3045'}`, background: dragOver ? 'rgba(34,197,94,0.04)' : '#161b27', cursor: 'pointer', transition: 'all 0.2s' }}
               onDragOver={e => { e.preventDefault(); setDragOver(true) }}
@@ -346,17 +384,28 @@ try {
               <input ref={fileInputRef} type="file" accept="image/*,application/pdf" style={{ display: 'none' }}
                 onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])} />
 
-              {preview ? (
+              {file ? (
                 <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: '200px 1fr', gap: '20px', alignItems: 'center' }}>
-                  <img src={preview} alt="Anteprima volantino" style={{ width: '100%', borderRadius: '8px', border: '1px solid #2a3045' }} />
+                  {preview ? (
+                    <img src={preview} alt="Anteprima" style={{ width: '100%', borderRadius: '8px', border: '1px solid #2a3045' }} />
+                  ) : (
+                    <div style={{ width: '100%', aspectRatio: '1', background: '#1e2535', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '3rem' }}>
+                      📄
+                    </div>
+                  )}
                   <div>
                     <div style={{ color: '#22c55e', fontWeight: '600', marginBottom: '6px' }}>✓ File caricato</div>
-                    <div style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '4px' }}>{file?.name}</div>
-                    <div style={{ color: '#4a5568', fontSize: '0.78rem', fontFamily: 'monospace' }}>
-                      {file ? (file.size / 1024).toFixed(0) + ' KB' : ''}
+                    <div style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '4px' }}>{file.name}</div>
+                    <div style={{ color: '#4a5568', fontSize: '0.78rem', fontFamily: 'monospace', marginBottom: '4px' }}>
+                      {(file.size / 1024).toFixed(0)} KB · {isPDF ? 'PDF' : 'Immagine'}
                     </div>
-                    <button style={{ ...s.btnGray, marginTop: '12px', fontSize: '0.78rem' }}
-                      onClick={e => { e.stopPropagation(); setFile(null); setPreview('') }}>
+                    {isPDF && (
+                      <div style={{ background: 'rgba(34,197,94,0.1)', color: '#22c55e', fontSize: '0.78rem', padding: '6px 10px', borderRadius: '6px', marginBottom: '8px' }}>
+                        ✦ Il PDF verrà convertito pagina per pagina e analizzato con Claude
+                      </div>
+                    )}
+                    <button style={{ ...s.btnGray, fontSize: '0.78rem' }}
+                      onClick={e => { e.stopPropagation(); setFile(null); setPreview(''); setIsPDF(false) }}>
                       Cambia file
                     </button>
                   </div>
@@ -365,10 +414,10 @@ try {
                 <div style={{ padding: '48px', textAlign: 'center' }}>
                   <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>📁</div>
                   <div style={{ fontWeight: '600', color: '#e2e8f0', marginBottom: '6px' }}>
-                    Trascina qui l'immagine del volantino
+                    Trascina qui il volantino
                   </div>
                   <div style={{ color: '#4a5568', fontSize: '0.82rem' }}>
-                    Supportati: JPG, PNG, WebP, PDF · Max 20MB
+                    Supportati: JPG, PNG, WebP, <strong style={{ color: '#22c55e' }}>PDF</strong> · Max 20MB
                   </div>
                   <div style={{ marginTop: '16px', color: '#22c55e', fontSize: '0.82rem', fontWeight: '600' }}>
                     oppure clicca per selezionare
@@ -377,7 +426,6 @@ try {
               )}
             </div>
 
-            {/* DATI VOLANTINO */}
             <div style={s.panel}>
               <div style={{ padding: '14px 20px', borderBottom: '1px solid #2a3045' }}>
                 <span style={{ fontWeight: '600', fontSize: '0.9rem' }}>📋 Dati del volantino</span>
@@ -406,22 +454,45 @@ try {
               <div style={{ padding: '0 20px 20px' }}>
                 <button style={{ ...s.btnGreen, opacity: !file || !catenaId ? 0.5 : 1 }}
                   onClick={avviaAnalisi} disabled={!file || !catenaId}>
-                  ✦ Avvia analisi con Claude AI
+                  ✦ {isPDF ? 'Converti PDF e avvia analisi' : 'Avvia analisi con Claude AI'}
                 </button>
               </div>
             </div>
           </>
         )}
 
-        {/* STEP: PROCESSING */}
+        {/* CONVERTING */}
+        {step === 'converting' && (
+          <div style={{ textAlign: 'center', padding: '80px 24px' }}>
+            <div style={{ fontSize: '3rem', marginBottom: '20px' }}>📄</div>
+            <h2 style={{ fontSize: '1.3rem', fontWeight: '700', marginBottom: '8px', color: '#22c55e' }}>
+              Conversione PDF in corso...
+            </h2>
+            <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '32px' }}>
+              {progressMsg || 'Elaborazione pagine...'}
+            </p>
+            {pagineTotali > 0 && (
+              <>
+                <div style={{ background: '#1e2535', borderRadius: '8px', height: '8px', overflow: 'hidden', maxWidth: '400px', margin: '0 auto 12px' }}>
+                  <div style={{ height: '100%', width: `${(pagineConvertite / pagineTotali) * 100}%`, background: '#22c55e', borderRadius: '8px', transition: 'width 0.3s' }} />
+                </div>
+                <div style={{ color: '#4a5568', fontSize: '0.82rem', fontFamily: 'monospace' }}>
+                  Pagina {pagineConvertite} di {pagineTotali}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* PROCESSING */}
         {step === 'processing' && (
           <div style={{ textAlign: 'center', padding: '80px 24px' }}>
             <div style={{ fontSize: '3rem', marginBottom: '20px' }}>✦</div>
             <h2 style={{ fontSize: '1.3rem', fontWeight: '700', marginBottom: '8px', color: '#22c55e' }}>
-              Claude sta leggendo il volantino...
+              Claude sta analizzando...
             </h2>
             <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '32px' }}>
-              Sto identificando tutti i prodotti, prezzi e sconti nell'immagine
+              {progressMsg || 'Identifico prodotti, prezzi e sconti...'}
             </p>
             <div style={{ background: '#1e2535', borderRadius: '8px', height: '8px', overflow: 'hidden', maxWidth: '400px', margin: '0 auto 12px' }}>
               <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, #22c55e, #3b82f6)', borderRadius: '8px', transition: 'width 0.5s ease' }} />
@@ -430,82 +501,54 @@ try {
           </div>
         )}
 
-        {/* STEP: REVIEW */}
+        {/* REVIEW */}
         {step === 'review' && (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
               <div>
-                <h1 style={{ fontSize: '1.4rem', fontWeight: '700', marginBottom: '4px' }}>
-                  Review prodotti estratti
-                </h1>
+                <h1 style={{ fontSize: '1.4rem', fontWeight: '700', marginBottom: '4px' }}>Review prodotti estratti</h1>
                 <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
                   Claude ha trovato <strong style={{ color: '#e2e8f0' }}>{prodotti.length} prodotti</strong> ·{' '}
-                  {prodottiDubbi > 0 && <span style={{ color: '#f59e0b' }}>{prodottiDubbi} con bassa certezza ·{' '}</span>}
+                  {prodottiDubbi > 0 && <span style={{ color: '#f59e0b' }}>{prodottiDubbi} con bassa certezza · </span>}
                   <span style={{ color: '#22c55e' }}>{prodottiSelezionati} selezionati</span>
                 </p>
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button style={s.btnGray} onClick={selezionaTutti}>Seleziona tutti</button>
-                <button style={s.btnGray} onClick={deselezionaTutti}>Deseleziona tutti</button>
-                <button style={s.btnGreen} onClick={salvaNelDB}>
-                  💾 Salva {prodottiSelezionati} prodotti
-                </button>
+                <button style={s.btnGray} onClick={() => setProdotti(ps => ps.map(p => ({ ...p, selezionato: true })))}>Tutti</button>
+                <button style={s.btnGray} onClick={() => setProdotti(ps => ps.map(p => ({ ...p, selezionato: false })))}>Nessuno</button>
+                <button style={s.btnGreen} onClick={salvaNelDB}>💾 Salva {prodottiSelezionati}</button>
               </div>
             </div>
 
             {errore && (
-              <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', color: '#ef4444', fontSize: '0.85rem' }}>
-                ❌ {errore}
-              </div>
+              <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', color: '#ef4444', fontSize: '0.85rem' }}>❌ {errore}</div>
             )}
 
-            {/* ISTRUZIONI */}
             <div style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '0.82rem', color: '#94a3b8', display: 'flex', gap: '16px', flexWrap: 'wrap' as const }}>
-              <span>☑ Spunta per selezionare/deselezionare</span>
+              <span>☑ Spunta per selezionare</span>
               <span>⠿ Trascina per riordinare</span>
-              <span>✏️ Modifica i campi direttamente</span>
-              <span>🗑 Elimina righe errate</span>
-              <span style={{ color: '#f59e0b' }}>⚠ Giallo = bassa certezza AI</span>
+              <span>✏️ Modifica campi</span>
+              <span>🗑 Elimina</span>
+              <span style={{ color: '#f59e0b' }}>⚠ Giallo = bassa certezza</span>
             </div>
 
-            {/* TABELLA PRODOTTI */}
             <div style={s.panel}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: '#1e2535' }}>
-                    <th style={{ width: '32px', padding: '10px 8px', borderBottom: '1px solid #2a3045' }}></th>
-                    <th style={{ width: '24px', padding: '10px 4px', borderBottom: '1px solid #2a3045' }}></th>
-                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#4a5568', borderBottom: '1px solid #2a3045' }}>Prodotto</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#4a5568', borderBottom: '1px solid #2a3045' }}>Categoria</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#4a5568', borderBottom: '1px solid #2a3045' }}>Prezzo offerta</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#4a5568', borderBottom: '1px solid #2a3045' }}>Prezzo pieno</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#4a5568', borderBottom: '1px solid #2a3045' }}>Conf.</th>
-                    <th style={{ width: '40px', padding: '10px 12px', borderBottom: '1px solid #2a3045' }}></th>
+                    {['', '', 'Prodotto', 'Categoria', 'Prezzo offerta', 'Prezzo pieno', 'Conf.', ''].map((h, i) => (
+                      <th key={i} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#4a5568', borderBottom: '1px solid #2a3045' }}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {prodotti.map((p, i) => (
-                    <tr
-                      key={p.id}
-                      draggable
-                      onDragStart={() => onDragStart(i)}
-                      onDragOver={e => onDragOverItem(e, i)}
-                      onDragEnd={onDragEnd}
-                      style={{
-                        background: !p.selezionato ? 'rgba(0,0,0,0.2)' : p.confidence < 70 ? 'rgba(245,158,11,0.04)' : 'transparent',
-                        borderBottom: '1px solid #2a3045',
-                        opacity: p.selezionato ? 1 : 0.5,
-                        cursor: 'grab'
-                      }}
-                    >
-                      {/* Checkbox */}
+                    <tr key={p.id} draggable onDragStart={() => onDragStart(i)} onDragOver={e => onDragOverItem(e, i)} onDragEnd={onDragEnd}
+                      style={{ background: !p.selezionato ? 'rgba(0,0,0,0.2)' : p.confidence < 70 ? 'rgba(245,158,11,0.04)' : 'transparent', borderBottom: '1px solid #2a3045', opacity: p.selezionato ? 1 : 0.5, cursor: 'grab' }}>
                       <td style={{ padding: '10px 8px', textAlign: 'center' }}>
-                        <input type="checkbox" checked={p.selezionato} onChange={() => toggleSelezionato(p.id)}
-                          style={{ accentColor: '#22c55e', width: '15px', height: '15px', cursor: 'pointer' }} />
+                        <input type="checkbox" checked={p.selezionato} onChange={() => toggleSelezionato(p.id)} style={{ accentColor: '#22c55e', width: '15px', height: '15px', cursor: 'pointer' }} />
                       </td>
-                      {/* Drag handle */}
                       <td style={{ padding: '10px 4px', color: '#4a5568', fontSize: '1rem', cursor: 'grab', userSelect: 'none' }}>⠿</td>
-                      {/* Prodotto */}
                       <td style={{ padding: '8px 12px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <input value={p.emoji} onChange={e => aggiornaProdotto(p.id, 'emoji', e.target.value)}
@@ -522,44 +565,31 @@ try {
                           </div>
                         </div>
                       </td>
-                      {/* Categoria */}
                       <td style={{ padding: '8px 12px' }}>
                         <select value={p.categoria} onChange={e => aggiornaProdotto(p.id, 'categoria', e.target.value)}
                           style={{ ...s.select, padding: '5px 8px', fontSize: '0.78rem' }}>
                           {CATEGORIE.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                       </td>
-                      {/* Prezzo scontato */}
                       <td style={{ padding: '8px 12px' }}>
-                        <input type="number" step="0.01" value={p.prezzo_scontato}
-                          onChange={e => aggiornaProdotto(p.id, 'prezzo_scontato', parseFloat(e.target.value))}
+                        <input type="number" step="0.01" value={p.prezzo_scontato} onChange={e => aggiornaProdotto(p.id, 'prezzo_scontato', parseFloat(e.target.value))}
                           style={{ ...s.input, padding: '5px 8px', fontSize: '0.85rem', fontWeight: '600', color: '#22c55e', width: '90px' }} />
                       </td>
-                      {/* Prezzo pieno */}
                       <td style={{ padding: '8px 12px' }}>
-                        <input type="number" step="0.01" value={p.prezzo_pieno || ''}
-                          placeholder="—"
-                          onChange={e => aggiornaProdotto(p.id, 'prezzo_pieno', e.target.value ? parseFloat(e.target.value) : null)}
+                        <input type="number" step="0.01" value={p.prezzo_pieno || ''} placeholder="—" onChange={e => aggiornaProdotto(p.id, 'prezzo_pieno', e.target.value ? parseFloat(e.target.value) : null)}
                           style={{ ...s.input, padding: '5px 8px', fontSize: '0.85rem', color: '#94a3b8', width: '90px' }} />
                       </td>
-                      {/* Confidence */}
                       <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                         <span style={{
                           background: p.confidence >= 90 ? 'rgba(34,197,94,0.15)' : p.confidence >= 70 ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
                           color: p.confidence >= 90 ? '#22c55e' : p.confidence >= 70 ? '#f59e0b' : '#ef4444',
                           fontSize: '0.72rem', fontWeight: '700', padding: '3px 8px', borderRadius: '4px', fontFamily: 'monospace'
-                        }}>
-                          {p.confidence}%
-                        </span>
+                        }}>{p.confidence}%</span>
                       </td>
-                      {/* Elimina */}
                       <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                        <button onClick={() => rimuoviProdotto(p.id)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4a5568', fontSize: '0.9rem' }}
+                        <button onClick={() => rimuoviProdotto(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4a5568', fontSize: '0.9rem' }}
                           onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
-                          onMouseLeave={e => e.currentTarget.style.color = '#4a5568'}>
-                          🗑
-                        </button>
+                          onMouseLeave={e => e.currentTarget.style.color = '#4a5568'}>🗑</button>
                       </td>
                     </tr>
                   ))}
@@ -567,11 +597,8 @@ try {
               </table>
             </div>
 
-            {/* FOOTER REVIEW */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <button style={s.btnGray} onClick={() => { setStep('upload'); setProdotti([]) }}>
-                ← Ricarica altro volantino
-              </button>
+              <button style={s.btnGray} onClick={() => { setStep('upload'); setProdotti([]) }}>← Ricarica altro volantino</button>
               <button style={{ ...s.btnGreen, padding: '12px 28px', fontSize: '0.95rem' }} onClick={salvaNelDB}>
                 💾 Salva {prodottiSelezionati} prodotti nel database
               </button>
@@ -579,51 +606,32 @@ try {
           </>
         )}
 
-        {/* STEP: SAVING */}
+        {/* SAVING */}
         {step === 'saving' && (
           <div style={{ textAlign: 'center', padding: '80px 24px' }}>
             <div style={{ fontSize: '3rem', marginBottom: '20px' }}>💾</div>
-            <h2 style={{ fontSize: '1.3rem', fontWeight: '700', marginBottom: '8px' }}>
-              Salvataggio in corso...
-            </h2>
-            <p style={{ color: '#94a3b8', marginBottom: '20px' }}>
-              {prodottiSalvati} / {prodotti.filter(p => p.selezionato).length} prodotti salvati
-            </p>
+            <h2 style={{ fontSize: '1.3rem', fontWeight: '700', marginBottom: '8px' }}>Salvataggio in corso...</h2>
+            <p style={{ color: '#94a3b8', marginBottom: '20px' }}>{prodottiSalvati} / {prodotti.filter(p => p.selezionato).length} prodotti salvati</p>
             <div style={{ background: '#1e2535', borderRadius: '8px', height: '8px', overflow: 'hidden', maxWidth: '400px', margin: '0 auto' }}>
-              <div style={{
-                height: '100%',
-                width: `${(prodottiSalvati / Math.max(prodotti.filter(p => p.selezionato).length, 1)) * 100}%`,
-                background: '#22c55e',
-                borderRadius: '8px',
-                transition: 'width 0.3s'
-              }} />
+              <div style={{ height: '100%', width: `${(prodottiSalvati / Math.max(prodotti.filter(p => p.selezionato).length, 1)) * 100}%`, background: '#22c55e', borderRadius: '8px', transition: 'width 0.3s' }} />
             </div>
           </div>
         )}
 
-        {/* STEP: DONE */}
+        {/* DONE */}
         {step === 'done' && (
           <div style={{ textAlign: 'center', padding: '80px 24px' }}>
             <div style={{ fontSize: '3rem', marginBottom: '20px' }}>🎉</div>
-            <h2 style={{ fontSize: '1.5rem', fontWeight: '700', marginBottom: '8px', color: '#22c55e' }}>
-              Completato!
-            </h2>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: '700', marginBottom: '8px', color: '#22c55e' }}>Completato!</h2>
             <p style={{ color: '#94a3b8', marginBottom: '32px' }}>
-              <strong style={{ color: '#e2e8f0' }}>{prodottiSalvati} prodotti</strong> salvati nel database con successo
+              <strong style={{ color: '#e2e8f0' }}>{prodottiSalvati} prodotti</strong> salvati con successo
             </p>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' as const }}>
-              <button style={s.btnGreen} onClick={() => {
-                setStep('upload'); setFile(null); setPreview(''); setProdotti([])
-                setVolantinoId(''); setProdottiSalvati(0)
-              }}>
+              <button style={s.btnGreen} onClick={() => { setStep('upload'); setFile(null); setPreview(''); setProdotti([]); setVolantinoId(''); setProdottiSalvati(0); setIsPDF(false) }}>
                 ✦ Analizza altro volantino
               </button>
-              <Link href="/admin/prodotti" style={{ ...s.btnGray, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
-                Vedi prodotti →
-              </Link>
-              <Link href="/" style={{ ...s.btnGray, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
-                🏠 Homepage
-              </Link>
+              <Link href="/admin/prodotti" style={{ ...s.btnGray, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Vedi prodotti →</Link>
+              <Link href="/" style={{ ...s.btnGray, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>🏠 Homepage</Link>
             </div>
           </div>
         )}
